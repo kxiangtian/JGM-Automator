@@ -1,10 +1,7 @@
 from target import TargetType
-from building import BuildingType
 from multiprocessing import Queue
 from config import Reader
 from cv import UIMatcher
-from random import choice
-from datetime import datetime
 import uiautomator2 as u2
 import logging
 import time
@@ -24,15 +21,6 @@ logger = logging.getLogger()
 logger.setLevel('INFO')
 logger.addHandler(chlr)
 logger.addHandler(fhlr)
-
-
-def elect(order_list_len, iter_round):
-    res = []
-    for i in range(1, order_list_len + 1):
-        if iter_round % i == 0:
-            res.append(i - 1)
-    return res
-
 
 class Automator:
     def __init__(self, device: str, keyboard: Queue):
@@ -54,80 +42,85 @@ class Automator:
             # 不在命令模式下时才接受回车暂停
             if not self.command_mode:
                 txt = self.keyboard.get()
-                # logger.info('txt1:' + txt)
                 if txt == prop.END:
                     logger.info('End')
                     return False
                 logger.info('Pause')
             txt = self.keyboard.get()
-            # logger.info('txt2:' + txt)
             if txt == prop.END:
                 logger.info('End')
                 return False
             # 判断是否输入命令
             elif txt.split(' ')[0] == prop.RUN:
-                # logger.info(txt.split(' ')[1:])
-                cmd = txt.split(' ')[1]
-                # 命令 - 升至 x 级
-                if cmd == prop.UPGRADE_TO:
-                    try:
-                        target_level = int(txt.split(' ')[2])
-                    except Exception:
-                        logger.warn("Invalid number. Ignored.")
-                    else:
-                        self._upgrade_to(target_level)
-                    # logger.info('target_level: ' + str(target_level))
-                # 命令 - 升级 x 次
-                elif cmd == prop.UPGRADE_TIMES:
-                    try:
-                        input_num = int(txt.split(' ')[2])
-                    except Exception:
-                        logger.warn("Invalid number. Ignored.")
-                    else:
-                        self._upgrade_times(input_num)
-                # 命令 - 命令模式
-                elif cmd == prop.COMMAND_MODE:
-                    if txt.split(' ')[2] == 'on':
-                        self.command_mode = True
-                        logger.info('Enter command mode.')
-                    elif txt.split(' ')[2] == 'off':
-                        self.command_mode = False
-                        logger.info('Exit command mode.')
-                        self._return_main_area()
-                    else:
-                        logger.warn("Unknown parameter. Ignored.")
-                # 命令 - 拆红包
-                elif cmd == prop.UNPACK:
-                    pack_type = txt.split(' ')[2]
-                    if pack_type in ['s', 'm', 'l']:
-                        try:
-                            input_num = int(txt.split(' ')[3])
-                        except Exception:
-                            logger.warn("Invalid number. Ignored.")
-                        else:
-                            self._unpack_times(pack_type, input_num)
-                            logger.info('Unpack complete.')
-                    else:
-                        logger.warn("Unknown parameter. Ignored.")
-                elif cmd == prop.OPEN_ALBUM:
-                    try:
-                        input_num = int(txt.split(' ')[2])
-                    except Exception:
-                        logger.warn("Invalid number. Ignored.")
-                    else:
-                        self._open_albums(input_num)
-                        logger.info('Open complete.')
-                # 无法识别命令
-                else:
-                    logger.warn("Unknown command. Ignored.")
-                if not self.command_mode:
-                    logger.info('Restart')
+                # 若输入了命令则进行解析
+                self._interpreter(txt.split(' ')[1:])
                 return True
             else:
                 logger.info('Restart')
                 return True
         else:
             return True
+
+    def _interpreter(self, cmd):
+        """
+        cmd: 用户输入的命令
+        """
+        # logger.info(txt.split(' ')[1:])
+        op = cmd[0]
+        # 命令 - 升至 x 级
+        if op == prop.UPGRADE_TO:
+            try:
+                target_level = int(cmd[1])
+            except Exception:
+                logger.warn("Invalid number. Ignored.")
+            else:
+                self._upgrade_to(target_level)
+        # 命令 - 升级 x 次
+        elif op == prop.UPGRADE_TIMES:
+            try:
+                input_num = int(cmd[1])
+            except Exception:
+                logger.warn("Invalid number. Ignored.")
+            else:
+                self._upgrade_times(input_num)
+        # 命令 - 命令模式
+        elif op == prop.COMMAND_MODE:
+            if len(cmd) == 2 and cmd[1] == 'on':
+                self.command_mode = True
+                logger.info('Enter command mode.')
+            elif len(cmd) == 2 and cmd[1] == 'off':
+                self.command_mode = False
+                logger.info('Exit command mode.')
+                self._return_main_area()
+            else:
+                logger.warn("Unknown parameter. Ignored.")
+        # 命令 - 拆红包
+        elif op == prop.UNPACK:
+            if len(cmd) == 3 and cmd[1] in ['s', 'm', 'l']:
+                try:
+                    input_num = int(cmd[2])
+                except Exception:
+                    logger.warn("Invalid number. Ignored.")
+                else:
+                    self._unpack_times(cmd[1], input_num)
+                    logger.info('Unpack complete.')
+            else:
+                logger.warn("Unknown parameter. Ignored.")
+        elif op == prop.OPEN_ALBUM:
+            try:
+                input_num = int(cmd[1])
+            except Exception:
+                logger.warn("Invalid number. Ignored.")
+            else:
+                self._open_albums(input_num)
+                logger.info('Open complete.')
+        elif op == prop.SUMMARY:
+            self._print_summary()
+        # 无法识别命令
+        else:
+            logger.warn("Unknown command. Ignored.")
+        if not self.command_mode:
+            logger.info('Restart')
 
     def start(self):
         """
@@ -138,10 +131,6 @@ class Automator:
         while True:
             # 检查是否有键盘事件
             if not self._need_continue():
-                logger.info('-' * 30)
-                pass_time = time.time() - self.time_start_working
-                logger.info(f"本次启动运行了 {int(pass_time // 3600)} 小时 {int(pass_time % 3600 // 60)} 分钟 {round(pass_time % 60, 2)} 秒")
-                logger.info(f"重启了 {self.refresh_times} 次， 检测到 {self.delivered_times} 次货物（非总送货次数）")
                 break
             
             # 进入命令模式后不继续执行常规操作
@@ -152,7 +141,7 @@ class Automator:
             self.config.refresh()
 
             if self.config.debug_mode:
-                None
+                logger.info("Debug mode")
                 # 重启游戏法
                 # self._refresh_train_by_restart()
                 
@@ -190,7 +179,10 @@ class Automator:
                     logger.info("Refresh train.")
                     logger.info("-" * 30)
                     self.refresh_times += 1
-                    self._refresh_train_by_restart()                    
+                    if not self._refresh_train_by_restart():
+                        # 重启不成功（超时）时中止脚本
+                        logger.warn("Timed out waiting for restart!")
+                        break
                 else:
                     logger.info("End matching")
 
@@ -199,21 +191,20 @@ class Automator:
             self.d.click(550, 1650)
 
             # 滑动屏幕，收割金币。
-            # logger.info("swipe")
+            logger.info("Collect coins")
             self._swipe()
 
-            # 升级建筑
+            # 自动升级建筑
             tmp_upgrade_interval = time.time() - tmp_upgrade_last_time
             if tmp_upgrade_interval >= self.config.upgrade_interval_sec:
-                if self.config.upgrade_type_is_assign is True:
-                    self._assigned_uprade()
-                else:
-                    self._upgrade()
+                if self.config.upgrade_building is True:
+                    self._auto_upgrade_building()
                 tmp_upgrade_last_time = time.time()
             else:
                 logger.info(f"Left {round(self.config.upgrade_interval_sec - tmp_upgrade_interval, 2)}s to upgrade")
 
             time.sleep(self.config.swipe_interval_sec)
+        self._print_summary()
         logger.info('Sub process end')
 
     def _swipe(self):
@@ -277,77 +268,18 @@ class Automator:
         # 侧面反映检测出货物
         return logged
 
-    def __find_selected_building_seq(self):
-        selected_seq_list = elect(len(self.config.upgrade_order), self.upgrade_iter_round)
-        tmp_set = set()
-        for order_seq in selected_seq_list:
-            tmp_set |= self.config.upgrade_order[order_seq]
-        res = []
-        for i, building in enumerate(self.config.building_pos):
-            if building in tmp_set:
-                res.append(i + 1)
-        if len(res) == 0:
-            return list(prop.BUILDING_POS.keys())
-        else:
-            return res
-
-    def _select_min_building(self):
-        screen = self._safe_screenshot()
-        screen = UIMatcher.pre(screen)
-        min_level = float('inf')
-        min_building_seq = None
-        for key in self.__find_selected_building_seq():
-            pos = prop.BUILDING_LEVEL_POS[key]
-            tmp = UIMatcher.cut(screen, pos)
-            tmp = UIMatcher.plain(tmp)
-            tmp = UIMatcher.fill_color(tmp)
-            tmp = UIMatcher.plain(tmp)
-            txt = UIMatcher.image_to_txt(tmp, plus='-l chi_sim --psm 7')
-            txt = UIMatcher.normalize_txt(txt)
-            try:
-                level = int(txt)
-                logger.info(f'{self.config.building_pos[key - 1]} tesser -> {level}')
-            except Exception:
-                logger.warning(f'{self.config.building_pos[key - 1]} tesser -> {txt}')
-                continue
-            if level < min_level:
-                min_level = level
-                min_building_seq = key
-
-        # 一个屋子的等级都没拿到
-        if min_building_seq is None:
-            res = choice(list(prop.BUILDING_POS.keys()))
-            logger.warning(f'No tesseract result, random to {self.config.building_pos[res - 1]}')
-            return res
-        else:
-            logger.info(f'Minimum level is {min_level} from {self.config.building_pos[min_building_seq - 1]}')
-            return min_building_seq
-
-    def _upgrade(self):
-        logger.info("Start upgrading")
-        # 迭代次数加一
-        self.upgrade_iter_round += 1
-
-        self.d.click(*prop.BUILDING_DETAIL_BTN)
-        time.sleep(1)
-        need_upgrade_building_seq = self._select_min_building()
-        self.d.click(*self._get_position(need_upgrade_building_seq))
-        time.sleep(1)
-        self.d.long_click(prop.BUILDING_UPGRADE_BTN[0], prop.BUILDING_UPGRADE_BTN[1],
-                          self.config.upgrade_press_time_sec)
-        time.sleep(0.5)
-        self.d.click(*prop.BUILDING_DETAIL_BTN)
-        logger.info("Upgrade complete")
-    
-    def _assigned_uprade(self):
-        logger.info("Start assigned upgrading")
+    def _auto_upgrade_building(self):
+        """
+        按顺序升级建筑
+        """
+        logger.info("Start upgrade buildings")
         self.d.click(*prop.BUILDING_DETAIL_BTN)
         time.sleep(0.5)
-        self.d.click(*self._get_position(self.config.assigned_building_pos))
-        time.sleep(0.5)
-        self.d.long_click(prop.BUILDING_UPGRADE_BTN[0], prop.BUILDING_UPGRADE_BTN[1],
-                          self.config.upgrade_press_time_sec)
-        time.sleep(0.5)
+        for pos in self.config.upgrade_building_list:
+            self.d.click(*self._get_position(pos))
+            time.sleep(0.5)
+            self.d.click(*prop.BUILDING_UPGRADE_BTN)
+            time.sleep(0.5)
         self.d.click(*prop.BUILDING_DETAIL_BTN)
         logger.info("Upgrade complete")
 
@@ -403,44 +335,56 @@ class Automator:
         self.d.click(tx, ty)
         time.sleep(0.5)
 
-    def _unpack_times(self, pack_type, sum: int):
+    def _unpack_times(self, pack_type, num: int):
+        """
+        开红包 num 个
+        """
         # 红包标题栏坐标 开红包后点这里直到开完这个红包
         tx, ty = prop.REDPACKET_TITLE_POS
         if pack_type == 'm':
             bx, by = prop.REDPACKET_BTN_M
-            t = 6
+            t = 12
         elif pack_type == 'l':
             bx, by = prop.REDPACKET_BTN_L
-            t = 12
+            t = 24
         else:
-            # logger.inf("暂不支持开小红包")
             bx, by = prop.REDPACKET_BTN_S
-            t = 3
-        while sum > 0:
-            sum -= 1
-            self.d.click(bx, by)
-            time.sleep(0.5)
+            t = 6
+        self.d.click(bx, by)
+        time.sleep(1)
+        while num > 1:
+            num -= 1
+            self.d.press("enter")
+            time.sleep(0.08)
+        time.sleep(1)
+        # 防止意外多点几下 例如升星或开出史诗
+        for _ in range(t):
             self.d.click(tx, ty)
+            time.sleep(0.25)
+        if not self.command_mode:
+            self._return_main_area()
+
+    def _open_albums(self, num: int):
+        """
+        开相册 num 个
+        """
+        self.d.click(*prop.ALBUM_BTN)
+        time.sleep(1)
+        while num > 1:
+            num -= 1
+            self.d.press("enter")
+            time.sleep(0.08)
+        time.sleep(1)
+        for _ in range(4):
+            self.d.click(*prop.REDPACKET_TITLE_POS)
             time.sleep(0.5)
-            # 防止意外多点几下 例如升星或开出史诗
-            for i in range(t):
-                # logger.info(f"第{i}次点击")
-                self.d.click(tx, ty)
-                time.sleep(0.5)
-    
-    def _open_albums(self, sum: int):
-        tx, ty = prop.ALBUM_BTN
-        bx, by = prop.REDPACKET_TITLE_POS
-        while sum > 0:
-            sum -= 1
-            self.d.click(tx, ty)
-            time.sleep(1)
-            for i in range(5):
-                # logger.info(f"第{i}次点击")
-                self.d.click(bx, by)
-                time.sleep(0.5)
+        if not self.command_mode:
+            self._return_main_area()
 
     def _is_good_to_go(self):
+        """
+        检测是否有排行图标来判断是否进入了游戏界面
+        """
         screen = self._safe_screenshot()
         return UIMatcher.match(screen, TargetType.Rank_btn) is not None
 
@@ -455,12 +399,17 @@ class Automator:
         self.d.app_start("com.tencent.jgm", activity=".MainActivity")
         time.sleep(5)
         good_to_go = False
+        try_times = 0
         while not good_to_go:
+            try_times += 1
             if self._is_good_to_go():
                 good_to_go = True
                 logger.info(f"Refresh train costs {round(time.time() - time_before_restart, 2)}s.")
+            elif try_times >= 60:
+                return False
             else:
                 time.sleep(1)
+        return True
 
     def _refresh_train_by_reconnect(self):
         """
@@ -485,5 +434,15 @@ class Automator:
             self.d.reset_uiautomator()
 
     def _safe_screenshot(self):
+        """
+        防止执行 screenshot 时报错终止
+        """
         self._check_uiautomator()
         return self.d.screenshot(format="opencv")
+
+    def _print_summary(self):
+        logger.info('-' * 30)
+        pass_time = time.time() - self.time_start_working
+        logger.info(f"本次启动运行了 {int(pass_time // 3600)} 小时 {int(pass_time % 3600 // 60)} 分钟 {round(pass_time % 60, 2)} 秒")
+        logger.info(f"重启了 {self.refresh_times} 次， 检测到 {self.delivered_times} 车厢目标货物（非总送货次数）")
+        logger.info('-' * 30)
